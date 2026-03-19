@@ -1,4 +1,5 @@
-const { Pool } = require("pg");
+import pkg from "pg"
+const { Pool } = pkg
 
 const pool = new Pool({
   user: "postgres.ctjgemczhxzygechqlii",
@@ -9,6 +10,6 @@ const pool = new Pool({
   ssl: {
     rejectUnauthorized: false,
   },
-});
+})
 
-module.exports = pool;
+export default pool

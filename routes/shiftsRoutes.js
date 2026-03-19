@@ -1,16 +1,12 @@
-const express = require("express")
+import express from "express"
+import * as shifts from "../controllers/shiftsController.js"
+
 const router = express.Router()
-const shifts = require("../controllers/shiftsController")
-const { requireAuth, requireOwner } = require("../middleware/auth")
 
-// لازم login عشان يبدأ او يخلص شيفت
-router.post("/start", requireAuth, shifts.startShift)
-router.post("/end", requireAuth, shifts.endShift)
-
-// الكل يشوف الشيفت الحالي
+router.post("/start", shifts.startShift)
+router.post("/end", shifts.endShift)
 router.get("/active", shifts.getActiveShift)
+router.get("/history", shifts.getShiftHistory)
+router.get("/report/:id", shifts.getShiftReport)
 
-// owner بس يشوف التاريخ كامل
-router.get("/history", requireAuth, requireOwner, shifts.getShiftHistory)
-
-module.exports = router
+export default router

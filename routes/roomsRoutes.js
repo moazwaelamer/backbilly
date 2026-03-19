@@ -1,7 +1,7 @@
-const express = require("express")
-const router = express.Router()
+import express from "express"
+import * as roomsController from "../controllers/roomsController.js"
 
-const roomsController = require("../controllers/roomsController")
+const router = express.Router()
 
 // ================= AVAILABLE ROOMS =================
 router.get("/available", roomsController.getAvailableRooms)
@@ -9,4 +9,4 @@ router.get("/available", roomsController.getAvailableRooms)
 // ================= ALL ROOMS =================
 router.get("/", roomsController.getRooms)
 
-module.exports = router 
+export default router

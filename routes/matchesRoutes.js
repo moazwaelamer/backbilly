@@ -1,9 +1,9 @@
-const express = require("express");
-const router = express.Router();
+import express from "express"
+import * as controller from "../controllers/matchesController.js"
 
-const controller = require("../controllers/matchesController");
+const router = express.Router()
 
 // ================= SET MATCH WINNER =================
-router.post("/:id/winner", controller.setMatchWinner);
+router.post("/:id/winner", controller.setMatchWinner)
 
-module.exports = router;
+export default router

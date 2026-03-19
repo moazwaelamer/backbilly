@@ -1,8 +1,8 @@
-const pool = require("../db/db")
+import pool from "../db/db.js"
 
 /* ================= GET INVENTORY ================= */
 
-exports.getInventory = async (req, res) => {
+export const getInventory = async (req, res) => {
   try {
 
     const result = await pool.query(`
@@ -30,7 +30,7 @@ exports.getInventory = async (req, res) => {
 
 /* ================= ADD PRODUCT ================= */
 
-exports.addProduct = async (req, res) => {
+export const addProduct = async (req, res) => {
   try {
 
     const { item_name, category, buy_price, sell_price, stock_quantity } = req.body
@@ -53,7 +53,7 @@ exports.addProduct = async (req, res) => {
 
 /* ================= DELETE (SOFT DELETE) ================= */
 
-exports.deleteItem = async (req, res) => {
+export const deleteItem = async (req, res) => {
   try {
 
     const id = parseInt(req.params.id);
@@ -74,7 +74,7 @@ exports.deleteItem = async (req, res) => {
 
 /* ================= UPDATE ================= */
 
-exports.updateItem = async (req, res) => {
+export const updateItem = async (req, res) => {
   try {
 
     const { id } = req.params;
@@ -111,7 +111,7 @@ exports.updateItem = async (req, res) => {
 
 /* ================= LOW STOCK ================= */
 
-exports.getLowStock = async (req, res) => {
+export const getLowStock = async (req, res) => {
   try {
 
     const result = await pool.query(`

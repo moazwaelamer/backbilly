@@ -1,15 +1,13 @@
-const express = require("express")
+import express from "express"
+import * as reservations from "../controllers/reservationsController.js"
+
 const router = express.Router()
-const controller = require("../controllers/reservationsController");
-const db = require("../db/db")
-const reservations = require("../controllers/reservationsController")
 
-/* ================= RESERVATIONS ================= */
+router.post("/",                   reservations.createReservation)
+router.get("/",                    reservations.getReservations)
+router.post("/checkin",            reservations.checkInReservation)
+router.get("/availability",        reservations.getAvailability)
+router.patch("/:id/cancel",        reservations.cancelReservation)
+router.patch("/:id/deposit", reservations.addDeposit)      // ✅ جديد
 
-router.post("/", reservations.createReservation)
-router.get("/", reservations.getReservations)
-router.post("/checkin", reservations.checkInReservation)
-router.get("/availability", controller.getAvailability)
-/* ================= AVAILABILITY ================= */
-
-module.exports = router
+export default router

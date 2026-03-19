@@ -1,11 +1,11 @@
-const db = require("../db/db")
+import db from "../db/db.js"
 
 /* ================= CREATE RESERVATION ================= */
 
-exports.createReservation = async (req,res)=>{
+export const createReservation = async (req,res)=>{
 
   try{
-
+    
     const {
       player_id = null,
       room_id,
@@ -15,8 +15,6 @@ exports.createReservation = async (req,res)=>{
       end_time,
       source = "Admin"
     } = req.body
-
-    /* CHECK TIME CONFLICT */
 
     const conflict = await db.query(`
       SELECT 1
@@ -31,8 +29,6 @@ exports.createReservation = async (req,res)=>{
         error:"Room already booked in this time slot"
       })
     }
-
-    /* 🧠 احسب السعر هنا قبل INSERT */
 
     const room = await db.query(`
       SELECT price_single, price_multi, price_movie, price_birthday
@@ -58,8 +54,6 @@ exports.createReservation = async (req,res)=>{
     if(event_type === "Birthday") base = roomData.price_birthday
 
     const total_price = base * duration
-
-    /* CREATE RESERVATION */
 
     const result = await db.query(`
       INSERT INTO sessions
@@ -99,7 +93,7 @@ exports.createReservation = async (req,res)=>{
 
 /* ================= GET RESERVATIONS ================= */
 
-exports.getReservations = async (req,res)=>{
+export const getReservations = async (req,res)=>{
 
   try{
 
@@ -131,12 +125,23 @@ exports.getReservations = async (req,res)=>{
 
 /* ================= GET ALL ROOMS ================= */
 
-exports.getRooms = async (req,res)=>{
-  try{
+
+
+/* ================= GET ALL ROOMS ================= */
+
+export const getRooms = async (req, res) => {
+  try {
     const result = await db.query(`
       SELECT
         r.room_id,
         r.room_name,
+        r.capacity,
+        r.price_single,
+        r.price_multi,
+        r.price_movie,
+        r.price_birthday,
+        r.image,
+
         s.session_id,
         s.reservation_status,
         s.start_time,
@@ -146,12 +151,16 @@ exports.getRooms = async (req,res)=>{
         s.customer_phone,
         s.event_type,
         s.play_mode,
+
         CASE
           WHEN s.reservation_status = 'Checked-In' THEN 'Occupied'
-          WHEN s.reservation_status = 'Pending' THEN 'Reserved'
+          WHEN s.reservation_status = 'Pending'
+               AND s.start_time <= NOW() + INTERVAL '60 minutes' THEN 'Reserved'
           ELSE 'Available'
         END AS status
+
       FROM rooms r
+
       LEFT JOIN LATERAL (
         SELECT *
         FROM sessions
@@ -160,51 +169,47 @@ exports.getRooms = async (req,res)=>{
         ORDER BY start_time DESC
         LIMIT 1
       ) s ON true
+
       WHERE r.is_active = true
       ORDER BY r.room_id
     `)
+
     res.json(result.rows)
-  }catch(err){
+
+  } catch (err) {
     console.log(err)
     res.status(500).json(err.message)
   }
 }
 
-
 /* ================= GET AVAILABLE ROOMS ================= */
 
-exports.getAvailableRooms = async (req,res)=>{
-
-  try{
-
+export const getAvailableRooms = async (req, res) => {
+  try {
     const { start_time, end_time } = req.query
 
     const result = await db.query(`
-     SELECT 
-  r.room_id,
-  r.room_name,
-  r.price_single,
-  r.price_multi,
-  r.price_movie,
-  r.price_birthday
-FROM rooms r
+      SELECT
+        r.room_id,
+        r.room_name,
+        r.price_single,
+        r.price_multi,
+        r.price_movie,
+        r.price_birthday
+      FROM rooms r
       WHERE r.is_active = true
       AND r.room_id NOT IN (
-
         SELECT s.room_id
         FROM sessions s
         WHERE s.reservation_status IN ('Pending','Checked-In')
         AND (s.start_time < $2 AND s.end_time > $1)
-
       )
       ORDER BY r.room_id
-    `,[start_time,end_time])
+    `, [start_time, end_time])
 
     res.json(result.rows)
-
-  }catch(err){
+  } catch (err) {
     console.log(err)
     res.status(500).json(err.message)
   }
-
 }

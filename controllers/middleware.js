@@ -1,7 +1,8 @@
-const jwt = require("jsonwebtoken")
+import jwt from "jsonwebtoken"
+
 const SECRET = "bilys_secret_key_2026"
 
-exports.requireAuth = (req, res, next) => {
+export const requireAuth = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1]
   
   if(!token){
@@ -17,7 +18,7 @@ exports.requireAuth = (req, res, next) => {
   }
 }
 
-exports.requireOwner = (req, res, next) => {
+export const requireOwner = (req, res, next) => {
   if(req.admin.role !== "owner"){
     return res.status(403).json({ error: "Owner access only" })
   }

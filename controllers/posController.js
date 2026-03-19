@@ -1,8 +1,8 @@
-const pool = require("../db/db");
+import pool from "../db/db.js"
 
 // ================= CREATE SALE =================
 
-exports.createSale = async (req, res) => {
+export const createSale = async (req, res) => {
 
   const { session_id, payment_method, items } = req.body;
 
@@ -23,7 +23,7 @@ exports.createSale = async (req, res) => {
     const shift = await client.query(`
       SELECT shift_id
       FROM shifts
-      WHERE status = 'Available'
+      WHERE status = 'Active'
       LIMIT 1
     `);
 
@@ -151,7 +151,7 @@ exports.createSale = async (req, res) => {
 
 // ================= MENU =================
 
-exports.getMenu = async (req, res) => {
+export const getMenu = async (req, res) => {
 
   try {
 
@@ -181,7 +181,7 @@ exports.getMenu = async (req, res) => {
 
 // ================= LOW STOCK =================
 
-exports.getLowStock = async (req, res) => {
+export const getLowStock = async (req, res) => {
 
   try {
 
@@ -207,7 +207,7 @@ exports.getLowStock = async (req, res) => {
 
 // ================= ALL SALES =================
 
-exports.getSales = async (req, res) => {
+export const getSales = async (req, res) => {
 
   try {
 
@@ -231,7 +231,7 @@ exports.getSales = async (req, res) => {
 
 // ================= SALE DETAILS =================
 
-exports.getSaleById = async (req, res) => {
+export const getSaleById = async (req, res) => {
 
   const { id } = req.params;
 
@@ -270,7 +270,7 @@ exports.getSaleById = async (req, res) => {
 
 // ================= TODAY SALES =================
 
-exports.getTodaySales = async (req, res) => {
+export const getTodaySales = async (req, res) => {
 
   try {
 

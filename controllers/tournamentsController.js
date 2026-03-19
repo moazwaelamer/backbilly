@@ -1,7 +1,4 @@
-const db = require("../db/db")
-
-
-
+import db from "../db/db.js"
 /* ============================= */
 /* GENERATE BRACKET LOGIC */
 /* ============================= */
@@ -88,7 +85,7 @@ const generateBracketLogic = async (client, tournamentId) => {
 /* ============================= */
 /* CREATE TOURNAMENT */
 /* ============================= */
-exports.createTournament = async (req, res) => {
+export const createTournament  = async (req, res) => {
   const client = await db.connect();
 
   try {
@@ -184,7 +181,7 @@ RETURNING *`,
 /* ============================= */
 /* GET TOURNAMENTS */
 /* ============================= */
-exports.getTournaments = async (req,res)=>{
+export const getTournaments = async (req,res)=>{
 
   try{
 
@@ -223,7 +220,7 @@ exports.getTournaments = async (req,res)=>{
 /* ============================= */
 /* JOIN TOURNAMENT */
 /* ============================= */
-exports.joinTournament = async (req,res)=>{
+export const joinTournament = async (req,res)=>{
 
   const client = await db.connect()
 
@@ -315,15 +312,13 @@ exports.joinTournament = async (req,res)=>{
       const match = round1Matches[i]
       const session = sessions.rows[i]
 
-      if (!session) {
-        throw new Error("Missing session for match")
-      }
-
-      await client.query(`
-        UPDATE sessions SET match_id=$1 WHERE session_id=$2
-      `,[match.match_id, session.session_id])
+     if (session) {
+  await client.query(`
+    UPDATE sessions SET match_id=$1 WHERE session_id=$2
+  `,[match.match_id, session.session_id])
+}
     }
-
+ 
     await client.query(`
       UPDATE tournaments
       SET status='In Progress'
@@ -346,7 +341,7 @@ exports.joinTournament = async (req,res)=>{
 /* ============================= */
 /* GET MATCHES */
 /* ============================= */
-exports.getTournamentMatches = async (req,res)=>{
+export const getTournamentMatches = async (req,res)=>{
 
   const {id} = req.params
 
@@ -381,7 +376,7 @@ exports.getTournamentMatches = async (req,res)=>{
 }/* ============================= */
 /* GET SINGLE TOURNAMENT */
 /* ============================= */
-exports.getTournamentById = async (req,res)=>{
+export const getTournamentById = async (req,res)=>{
 
   const { id } = req.params
 
@@ -436,7 +431,7 @@ res.json({
 /* ============================= */
 /* DELETE TOURNAMENT */
 /* ============================= */
-exports.deleteTournament = async (req,res)=>{
+export const deleteTournament = async (req,res)=>{
   const { id } = req.params;
   const client = await db.connect();
 
@@ -487,7 +482,7 @@ exports.deleteTournament = async (req,res)=>{
     client.release();
   }
 };
-exports.getTournamentPlayers = async (req, res) => {
+export const getTournamentPlayers = async (req, res) => {
   const { id } = req.params
   try{
     const result = await db.query(`

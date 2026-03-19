@@ -1,9 +1,9 @@
-const jwt = require("jsonwebtoken")
-const db = require("../db/db")
+import jwt from "jsonwebtoken"
+import db from "../db/db.js"
 
 const SECRET = "bilys_secret_key_2026"
 
-exports.login = async (req,res)=>{
+export const login = async (req,res)=>{
   try{
     const {username, password} = req.body
 

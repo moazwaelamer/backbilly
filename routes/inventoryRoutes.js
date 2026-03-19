@@ -1,15 +1,12 @@
-const express = require("express")
-const router = express.Router()
-const inventoryController = require("../controllers/inventoryController")
-const { requireAuth, requireOwner } = require("../middleware/auth")
+import express from "express"
+import * as inventoryController from "../controllers/inventoryController.js"
 
-// الكل يشوف
+const router = express.Router()
+
 router.get("/", inventoryController.getInventory)
+router.post("/products", inventoryController.addProduct)
+router.delete("/:id", inventoryController.deleteItem)
+router.patch("/:id", inventoryController.updateItem)
 router.get("/low-stock", inventoryController.getLowStock)
 
-// owner بس
-router.post("/products", requireAuth, requireOwner, inventoryController.addProduct)
-router.delete("/:id", requireAuth, requireOwner, inventoryController.deleteItem)
-router.patch("/:id", requireAuth, requireOwner, inventoryController.updateItem)
-
-module.exports = router
+export default router

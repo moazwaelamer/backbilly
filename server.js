@@ -1,93 +1,95 @@
-const express = require("express")
-const cors = require("cors")
-const http = require("http")
-const { Server } = require("socket.io")
+import express from "express"
+import cors from "cors"
+import http from "http"
+import { Server } from "socket.io"
+import pool from "./db/db.js"
+
+import reservationsRoutes from "./routes/reservationsRoutes.js"
+import dashboardRoutes from "./routes/dashboardRoutes.js"
+import sessionRoutes from "./routes/sessionsRoutes.js"
+import roomsRoutes from "./routes/roomsRoutes.js"
+import posRoutes from "./routes/posRoutes.js"
+import inventoryRoutes from "./routes/inventoryRoutes.js"
+import shiftsRoutes from "./routes/shiftsRoutes.js"
+import analyticsRoutes from "./routes/analyticsRoutes.js"
+import moviesRoutes from "./routes/moviesRoutes.js"
+import tournamentsRoutes from "./routes/tournamentsRoutes.js"
+import playersRoutes from "./routes/playersRoutes.js"
+import authRoutes from "./routes/authRoutes.js"
+import matchesRoutes from "./routes/matchesRoutes.js"
+
 const app = express()
-const reservationsRoutes = require("./routes/reservationsRoutes")
-const dashboardRoutes = require("./routes/dashboardRoutes")
-const sessionRoutes = require("./routes/sessionsRoutes")
-const roomsRoutes = require("./routes/roomsRoutes")
-const posRoutes = require("./routes/posRoutes")
-const inventoryRoutes = require("./routes/inventoryRoutes")
-const shiftsRoutes = require("./routes/shiftsRoutes")
-const analyticsRoutes = require("./routes/analyticsRoutes")
-const moviesRoutes = require("./routes/moviesRoutes")
-const tournamentsRoutes = require("./routes/tournamentsRoutes")
-const playersRoutes = require("./routes/playersRoutes")
-const authRoutes = require("./routes/authRoutes")
-const matchesRoutes = require("./routes/matchesRoutes")
 
-
-
-
-/* ================= MIDDLEWARE ================= */
-
-app.use(cors({
-  origin: "*"
-}))
-
+app.use(cors({ origin: "*" }))
 app.use(express.json())
-
-/* ================= HTTP SERVER ================= */
 
 const server = http.createServer(app)
 
-/* ================= SOCKET.IO ================= */
-
-const io = new Server(server,{
-  cors:{
-    origin:"*",
-    methods:["GET","POST","PUT","DELETE"]
-  }
+const io = new Server(server, {
+  cors: { origin: "*", methods: ["GET", "POST", "PUT", "DELETE"] }
 })
 
-app.set("io",io)
+app.set("io", io)
 
-io.on("connection",(socket)=>{
+io.on("connection", (socket) => {
+  console.log("Client connected:", socket.id)
 
-  console.log("Client connected:",socket.id)
-
-  socket.on("joinTournament",(tournamentId)=>{
+  socket.on("joinTournament", (tournamentId) => {
     socket.join(`tournament_${tournamentId}`)
   })
 
-  socket.on("disconnect",()=>{
-    console.log("Client disconnected:",socket.id)
+  socket.on("disconnect", () => {
+    console.log("Client disconnected:", socket.id)
   })
-
 })
 
-/* ================= ROUTES ================= */
-
-app.use("/api/auth",authRoutes)
-
+app.use("/api/auth",         authRoutes)
 app.use("/api/reservations", reservationsRoutes)
-app.use("/api/rooms", roomsRoutes)
-app.use("/api/players", playersRoutes)
-app.use("/api/sessions", sessionRoutes)
-
-app.use("/api/dashboard",dashboardRoutes)
-app.use("/api/shifts", shiftsRoutes)
-app.use("/api/analytics", analyticsRoutes)
-
-app.use("/api/inventory", inventoryRoutes)
-app.use("/api/movies", moviesRoutes)
-
-app.use("/api/tournaments", tournamentsRoutes)
-app.use("/api/matches", matchesRoutes)
-/* ================= STATIC FILES ================= */
-
-app.use("/uploads", express.static("uploads"))
-
-/* ================= POS ================= */
-
-app.use("/pos", posRoutes)
-
-/* ================= SERVER ================= */
+app.use("/api/rooms",        roomsRoutes)
+app.use("/api/players",      playersRoutes)
+app.use("/api/sessions",     sessionRoutes)
+app.use("/api/dashboard", dashboardRoutes)
+app.use("/api/shifts",       shiftsRoutes)
+app.use("/api/analytics",    analyticsRoutes)
+app.use("/api/inventory",    inventoryRoutes)
+app.use("/api/movies",       moviesRoutes)
+app.use("/api/tournaments",  tournamentsRoutes)
+app.use("/api/matches",      matchesRoutes)
+app.use("/uploads",          express.static("uploads"))
+app.use("/api/pos",          posRoutes)
 
 const PORT = process.env.PORT || 5000
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
-})
 
+  // ✅ AUTO-END SESSIONS — بيشتغل كل دقيقة
+  // بيشوف لو في sessions خلص وقتها (end_time < NOW) وبيعملها Completed تلقائي
+  setInterval(async () => {
+  try {
+    const result = await pool.query(`
+      UPDATE sessions
+      SET
+        reservation_status = 'Checked-In',
+        actual_start = start_time
+      WHERE reservation_status = 'Reserved'
+      SET
+       reservation_status = 'Checked-In',
+       actual_start = NOW() 
+      RETURNING session_id, room_id
+    `)
+
+    if (result.rows.length > 0) {
+      console.log(`🚀 Auto-started ${result.rows.length} session(s):`,
+        result.rows.map(r => r.session_id)
+      )
+
+      // 🔥 تحديث الفرونت
+      io.emit("dashboard_update")
+    }
+
+  } catch (err) {
+    console.log("Auto-start error:", err.message)
+  }
+}, 30 * 1000) // كل 30 ثانية
+})

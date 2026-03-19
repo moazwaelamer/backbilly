@@ -1,5 +1,5 @@
-const db = require("../db/db");
-const fetch = (...args) => import("node-fetch").then(({default: fetch}) => fetch(...args));
+import db from "../db/db.js"
+const fetch = (...args) => import("node-fetch").then(({default: fetch}) => fetch(...args))
 
 function getStage(round, totalRounds){
   if(round === totalRounds) return "Final";
@@ -8,7 +8,7 @@ function getStage(round, totalRounds){
   return "Normal";
 }
 
-exports.setMatchWinner = async (req,res)=>{
+export const setMatchWinner = async (req,res)=>{
 
 const client = await db.connect();
 
@@ -151,6 +151,7 @@ try{
 }catch(err){
   console.log("n8n failed:", err.message, err.name);
 }
+
 /* ================= UPDATE STATS ================= */
 
 if(data && Array.isArray(data.players)){
@@ -256,4 +257,3 @@ client.release();
 }
 
 };
-

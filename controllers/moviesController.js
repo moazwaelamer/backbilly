@@ -1,8 +1,8 @@
-const pool = require("../db/db")
+import pool from "../db/db.js"
 
 /* CREATE MOVIE NIGHT */
 
-exports.createMovie = async (req,res)=>{
+export const createMovie = async (req,res)=>{
 
 const { title, movie_date, total_seats, price } = req.body
 
@@ -82,7 +82,7 @@ client.release()
 
 /* GET MOVIES */
 
-exports.getMovies = async (req,res)=>{
+export const getMovies = async (req,res)=>{
 
 try{
 
@@ -117,7 +117,7 @@ error:err.message
 
 /* GET SEATS */
 
-exports.getSeats = async (req,res)=>{
+export const getSeats = async (req,res)=>{
 
 const { id } = req.params
 
@@ -146,7 +146,7 @@ error:err.message
 
 /* BOOK SEATS */
 
-exports.bookSeats = async (req,res)=>{
+export const bookSeats = async (req,res)=>{
 
 const { movie_id, name, phone } = req.body
 let { seats } = req.body
@@ -187,7 +187,7 @@ error:"Event sold out"
 
 }
 
-/* AUTO SEAT (Website booking) */
+/* AUTO SEAT */
 
 if(seats && seats[0] === "AUTO"){
 
@@ -266,9 +266,11 @@ client.release()
 }
 
 }
+
+
 /* DELETE MOVIE */
 
-exports.deleteMovie = async (req,res)=>{
+export const deleteMovie = async (req,res)=>{
 
 const { id } = req.params
 
@@ -308,4 +310,27 @@ client.release()
 
 }
 
+}
+
+
+/* GET MOVIE BOOKINGS */
+
+export const getMovieBookings = async (req, res) => {
+  const { id } = req.params
+  try {
+    const result = await pool.query(`
+      SELECT 
+        b.booking_id,
+        b.customer_name,
+        b.phone,
+        b.seats,
+        b.created_at
+      FROM movie_night_bookings b
+      WHERE b.movie_id = $1
+      ORDER BY b.created_at DESC
+    `, [id])
+    res.json(result.rows)
+  } catch(err) {
+    res.status(500).json({ error: err.message })
+  }
 }
