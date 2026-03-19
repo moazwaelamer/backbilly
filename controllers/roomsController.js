@@ -32,6 +32,33 @@ exports.createReservation = async (req,res)=>{
       })
     }
 
+    /* 🧠 احسب السعر هنا قبل INSERT */
+
+    const room = await db.query(`
+      SELECT price_single, price_multi, price_movie, price_birthday
+      FROM rooms
+      WHERE room_id = $1
+    `,[room_id])
+
+    const roomData = room.rows[0]
+
+    const start = new Date(start_time)
+    const end = new Date(end_time)
+    const duration = (end - start) / (1000 * 60 * 60)
+
+    let base = 0
+
+    if(event_type === "Gaming"){
+      base = play_mode === "Multi"
+        ? roomData.price_multi
+        : roomData.price_single
+    }
+
+    if(event_type === "Movie") base = roomData.price_movie
+    if(event_type === "Birthday") base = roomData.price_birthday
+
+    const total_price = base * duration
+
     /* CREATE RESERVATION */
 
     const result = await db.query(`
@@ -44,15 +71,26 @@ exports.createReservation = async (req,res)=>{
         start_time,
         end_time,
         source,
+        total_price,
         reservation_status
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,'Pending')
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Pending')
       RETURNING *
-    `,[player_id,room_id,event_type,play_mode,start_time,end_time,source])
+    `,[
+      player_id,
+      room_id,
+      event_type,
+      play_mode,
+      start_time,
+      end_time,
+      source,
+      total_price
+    ])
 
     res.json(result.rows[0])
 
   }catch(err){
+    console.log(err)
     res.status(500).json(err.message)
   }
 
@@ -94,59 +132,42 @@ exports.getReservations = async (req,res)=>{
 /* ================= GET ALL ROOMS ================= */
 
 exports.getRooms = async (req,res)=>{
-
   try{
-
     const result = await db.query(`
-
       SELECT
         r.room_id,
         r.room_name,
-
         s.session_id,
         s.reservation_status,
         s.start_time,
         s.end_time,
         s.actual_start,
-
-        p.full_name AS customer_name,
-
+        s.customer_name,
+        s.customer_phone,
+        s.event_type,
+        s.play_mode,
         CASE
           WHEN s.reservation_status = 'Checked-In' THEN 'Occupied'
           WHEN s.reservation_status = 'Pending' THEN 'Reserved'
           ELSE 'Available'
         END AS status
-
       FROM rooms r
-
       LEFT JOIN LATERAL (
-
         SELECT *
         FROM sessions
         WHERE room_id = r.room_id
         AND reservation_status IN ('Pending','Checked-In')
-        ORDER BY session_id DESC
+        ORDER BY start_time DESC
         LIMIT 1
-
       ) s ON true
-
-      LEFT JOIN players p
-      ON s.player_id = p.player_id
-
       WHERE r.is_active = true
       ORDER BY r.room_id
-
     `)
-
     res.json(result.rows)
-
   }catch(err){
-
     console.log(err)
     res.status(500).json(err.message)
-
   }
-
 }
 
 
@@ -159,8 +180,14 @@ exports.getAvailableRooms = async (req,res)=>{
     const { start_time, end_time } = req.query
 
     const result = await db.query(`
-      SELECT r.room_id, r.room_name
-      FROM rooms r
+     SELECT 
+  r.room_id,
+  r.room_name,
+  r.price_single,
+  r.price_multi,
+  r.price_movie,
+  r.price_birthday
+FROM rooms r
       WHERE r.is_active = true
       AND r.room_id NOT IN (
 

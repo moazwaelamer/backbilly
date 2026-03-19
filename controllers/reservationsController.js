@@ -89,9 +89,9 @@ if(tournamentConflict.rows.length > 0){
   })
 }
     const result = await db.query(`
-      INSERT INTO sessions
-      (customer_name,customer_phone,room_id,event_type,play_mode,start_time,end_time)
-      VALUES ($1,$2,$3,$4,$5,$6,$7)
+     INSERT INTO sessions
+(customer_name,customer_phone,room_id,event_type,play_mode,start_time,end_time,reservation_status)
+VALUES ($1,$2,$3,$4,$5,$6,$7,'Pending')
       RETURNING *
     `,
     [
@@ -253,6 +253,7 @@ WHERE NOT EXISTS (
 SELECT 1
 FROM sessions s
 WHERE s.room_id = $1
+AND s.reservation_status IN ('Pending','Checked-In') -- 🔥 أهم سطر
 AND slot >= s.start_time
 AND slot < s.end_time
 

@@ -1,107 +1,230 @@
 const db = require("../db/db");
+const multer = require("multer")
+const path = require("path")
 
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, "uploads/"),
+  filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
+})
+
+exports.upload = multer({ storage })
+
+// ================= PROFILE =================
 exports.getPlayerProfile = async (req,res)=>{
+  const {id} = req.params;
 
- const {id} = req.params;
+  try{
+    const result = await db.query(`
+      SELECT * FROM (
+        SELECT 
+          p.player_id,
+          p.full_name,
+          p.phone,
+          p.email,
+          p.avatar_url,
+          p.nickname,
+          p.country,
+          p.current_xp,
+          p.tier,
+          p.created_at,
 
- try{
+          COALESCE(ps.elo_rank, 1000) AS elo_rank,
+          COALESCE(ps.total_wins, 0) AS total_wins,
+          COALESCE(ps.total_losses, 0) AS total_losses,
+          COALESCE(ps.total_games, 0) AS total_games,
+          COALESCE(ps.win_streak, 0) AS win_streak,
+          COALESCE(ps.best_streak, 0) AS best_streak,
+          COALESCE(ps.tier, 'Bronze') AS rank_tier,
 
- const result = await db.query(`
- SELECT 
- p.player_id,
- p.full_name,
- p.phone,
- p.email,
- p.current_xp,
- p.tier,
- ps.elo_rank,
- ps.total_wins,
- ps.total_games,
- ps.win_streak
- FROM players p
- LEFT JOIN player_stats ps
- ON ps.player_id = p.player_id
- WHERE p.player_id = $1
- `,[id]);
+          RANK() OVER (ORDER BY COALESCE(ps.elo_rank,1000) DESC) AS rank,
 
- res.json(result.rows[0]);
+          COALESCE(
+            ROUND(
+              (ps.total_wins::decimal / NULLIF(ps.total_games,0)) * 100
+            ,2)
+          ,0) AS win_rate
 
- }catch(err){
- res.status(500).json(err.message)
- }
+        FROM players p
+        LEFT JOIN player_stats ps ON ps.player_id = p.player_id
+      ) ranked
+      WHERE player_id = $1
+    `,[id]);
 
+    if(!result.rows[0]){
+      return res.status(404).json({error:"Player not found"})
+    }
+
+    // جيب stats الأوض
+    const roomStats = await db.query(`
+      SELECT 
+        COUNT(*) AS total_bookings,
+        COALESCE(SUM(EXTRACT(EPOCH FROM (end_time - start_time))/3600), 0) AS total_hours
+      FROM sessions
+      WHERE player_id=$1
+      AND reservation_status = 'Completed'
+    `,[id])
+
+    const favoriteRoom = await db.query(`
+      SELECT r.room_name, COUNT(*) AS times
+      FROM sessions s
+      JOIN rooms r ON r.room_id = s.room_id
+      WHERE s.player_id=$1
+      GROUP BY r.room_name
+      ORDER BY times DESC
+      LIMIT 1
+    `,[id])
+
+    res.json({
+      ...result.rows[0],
+      total_bookings: Number(roomStats.rows[0].total_bookings),
+      total_hours: Number(roomStats.rows[0].total_hours).toFixed(1),
+      favorite_room: favoriteRoom.rows[0] || null
+    });
+
+  }catch(err){
+    console.log("🔥 ERROR:", err);
+    res.status(500).json({error: err.message});
+  }
+};
+
+// ================= UPDATE AVATAR =================
+exports.updateAvatar = async (req, res) => {
+  const { id } = req.params
+
+  if(!req.file){
+    return res.status(400).json({ error: "No image uploaded" })
+  }
+
+  const avatar_url = `/uploads/${req.file.filename}`
+
+  try{
+    const result = await db.query(`
+      UPDATE players SET avatar_url=$1 WHERE player_id=$2 RETURNING *
+    `,[avatar_url, id])
+
+    res.json(result.rows[0])
+  }catch(err){
+    res.status(500).json({ error: err.message })
+  }
 }
 
+// ================= UPDATE PROFILE =================
+exports.updateProfile = async (req, res) => {
+  const { id } = req.params
+  const { nickname, country, email } = req.body
 
+  try{
+    const result = await db.query(`
+      UPDATE players 
+      SET 
+        nickname = COALESCE($1, nickname),
+        country = COALESCE($2, country),
+        email = COALESCE($3, email)
+      WHERE player_id=$4 
+      RETURNING *
+    `,[nickname, country, email, id])
+
+    res.json(result.rows[0])
+  }catch(err){
+    res.status(500).json({ error: err.message })
+  }
+}
+
+// ================= MATCH HISTORY =================
 exports.getPlayerMatches = async (req,res)=>{
+  const {id} = req.params;
 
- const {id} = req.params
+  try{
+    const matches = await db.query(`
+      SELECT 
+        m.match_id,
+        m.round_number AS round,
+        t.tournament_name,
+        COALESCE(p1.full_name, 'BYE') AS player1,
+        COALESCE(p2.full_name, 'BYE') AS player2,
+        COALESCE(pw.full_name, 'TBD') AS winner,
+        CASE 
+          WHEN m.winner_id IS NULL THEN 'PENDING'
+          WHEN m.winner_id = $1 THEN 'WIN'
+          ELSE 'LOSS'
+        END AS result
+      FROM matches m
+      LEFT JOIN players p1 ON p1.player_id = m.player_1_id
+      LEFT JOIN players p2 ON p2.player_id = m.player_2_id
+      LEFT JOIN players pw ON pw.player_id = m.winner_id
+      LEFT JOIN tournaments t ON t.tournament_id = m.tournament_id
+      WHERE m.player_1_id=$1 OR m.player_2_id=$1
+      ORDER BY m.match_id DESC
+    `,[id]);
 
- try{
+    res.json(matches.rows);
+  }catch(err){
+    console.log(err);
+    res.status(500).json({error:"Failed to load matches"});
+  }
+};
 
- const matches = await db.query(`
- SELECT 
- m.match_id,
- m.round,
- g.game_name,
- p1.full_name AS player1,
- p2.full_name AS player2,
- pw.full_name AS winner
- FROM matches m
- LEFT JOIN players p1 ON p1.player_id = m.player_1_id
- LEFT JOIN players p2 ON p2.player_id = m.player_2_id
- LEFT JOIN players pw ON pw.player_id = m.winner_id
- LEFT JOIN tournaments t ON t.tournament_id = m.tournament_id
- LEFT JOIN games g ON g.game_id = t.game_id
- WHERE m.player_1_id=$1 OR m.player_2_id=$1
- ORDER BY m.match_time DESC
- `,[id])
+// ================= LEADERBOARD =================
+exports.getLeaderboard = async (req,res)=>{
+  try{
+    const result = await db.query(`
+      SELECT 
+        p.player_id,
+        p.full_name,
+        p.avatar_url,
+        p.nickname,
+        p.country,
+        p.tier,
+        COALESCE(ps.elo_rank, 1000) AS elo_rank,
+        COALESCE(ps.total_wins, 0) AS total_wins,
+        COALESCE(ps.total_losses, 0) AS total_losses,
+        COALESCE(ps.total_games, 0) AS total_games,
+        COALESCE(ps.win_streak, 0) AS win_streak,
+        COALESCE(ps.best_streak, 0) AS best_streak,
+        COALESCE(ps.tier, 'Bronze') AS rank_tier,
+        RANK() OVER (ORDER BY COALESCE(ps.elo_rank,1000) DESC) AS rank,
+        COALESCE(
+          ROUND((ps.total_wins::decimal / NULLIF(ps.total_games,0)) * 100, 2)
+        ,0) AS win_rate
+      FROM players p
+      LEFT JOIN player_stats ps ON ps.player_id = p.player_id
+      ORDER BY COALESCE(ps.elo_rank,1000) DESC
+      LIMIT 100
+    `);
 
- res.json(matches.rows)
+    res.json(result.rows);
+  }catch(err){
+    console.log("🔥 ERROR:", err);
+    res.status(500).json({error: err.message});
+  }
+};
 
- }catch(err){
- res.status(500).json(err.message)
- }
-
-}
-
-
-exports.getPlayers = async (req,res)=>{
-
- try{
-
- const players = await db.query(`
- SELECT player_id, full_name, phone
- FROM players
- ORDER BY full_name
- `)
-
- res.json(players.rows)
-
- }catch(err){
- res.status(500).json(err.message)
- }
-
-}
-
-
+// ================= CREATE PLAYER =================
 exports.createPlayer = async (req,res)=>{
+  const {full_name, phone} = req.body;
 
- const {full_name, phone} = req.body
+  try{
+    if (!full_name || !phone) {
+      return res.status(400).json({ error: "Name and phone required" });
+    }
 
- try{
+    const result = await db.query(`
+      INSERT INTO players (full_name, phone)
+      VALUES ($1,$2)
+      RETURNING *
+    `,[full_name, phone]);
 
- const result = await db.query(`
- INSERT INTO players (full_name, phone)
- VALUES ($1,$2)
- RETURNING *
- `,
- [full_name, phone])
+    const player = result.rows[0];
 
- res.json(result.rows[0])
+    await db.query(`
+      INSERT INTO player_stats (player_id)
+      VALUES ($1)
+      ON CONFLICT DO NOTHING
+    `,[player.player_id]);
 
- }catch(err){
- res.status(500).json(err.message)
- }
-
-}
+    res.json(player);
+  }catch(err){
+    console.log(err);
+    res.status(500).json({error:"Failed to create player"});
+  }
+};

@@ -1,53 +1,18 @@
 const express = require("express");
 const router = express.Router();
-
 const controller = require("../controllers/tournamentsController");
+const { requireAuth, requireOwner } = require("../middleware/auth");
 
-
-// ============================
-// CREATE TOURNAMENT
-// ============================
-router.post("/", controller.createTournament);
-
-
-// ============================
-// GET TOURNAMENTS
-// ============================
-router.get("/", controller.getTournaments);
-
-// get single tournament
-
-
-
-// ============================
-// PLAYERS
-// ============================
-
-// get players in tournament
+// owner بس
+router.post("/", requireAuth, requireOwner, controller.createTournament);
+router.delete("/:id", requireAuth, requireOwner, controller.deleteTournament);
 router.get("/:id/players", controller.getTournamentPlayers);
-
-// join tournament
-router.post("/:id/join", controller.joinTournament);
-
-// remove player
-router.delete("/:tournamentId/players/:playerId", controller.removePlayer);
-
-
-// ============================
-// MATCHES / BRACKET
-// ============================
-
-// get bracket matches
+// الكل يقدر يشوف
+router.get("/", controller.getTournaments);
+router.get("/:id", controller.getTournamentById);
 router.get("/:id/matches", controller.getTournamentMatches);
 
-// manual bracket generation
-router.post("/:id/generate-bracket", controller.generateBracket);
-
-
-// ============================
-// DELETE TOURNAMENT
-// ============================
-router.delete("/:id", controller.deleteTournament);
-
+// الـ join محتاج login بس مش owner
+router.post("/:id/join", requireAuth, controller.joinTournament);
 
 module.exports = router;

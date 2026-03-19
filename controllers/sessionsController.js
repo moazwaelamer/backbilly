@@ -8,12 +8,34 @@ exports.startSession = async (req,res)=>{
 
     let { room_id, duration, event_type, play_mode } = req.body
 
+    if(!room_id || !duration){
+      return res.status(400).json({error:"Missing data"})
+    }
+
     if(event_type === "Event"){
       play_mode = null
     }
 
+    const hours = Number(duration)
+
+    if(isNaN(hours) || hours <= 0){
+      return res.status(400).json({error:"Invalid duration"})
+    }
+
     const start = new Date()
-    const end = new Date(start.getTime() + duration * 60 * 60 * 1000)
+    const end = new Date(start.getTime() + hours * 60 * 60 * 1000)
+
+    // 🔥 CHECK CONFLICT (مكانه الصح)
+    const conflict = await db.query(`
+      SELECT 1 FROM sessions
+      WHERE room_id=$1
+      AND reservation_status IN ('Pending','Checked-In')
+      AND (start_time < $3 AND end_time > $2)
+    `,[room_id, start, end])
+
+    if(conflict.rows.length){
+      return res.status(400).json({error:"Room busy"})
+    }
 
     const result = await db.query(`
       INSERT INTO sessions
@@ -38,8 +60,7 @@ exports.startSession = async (req,res)=>{
       end
     ])
 
-    const io = req.app.get("io")
-    io.emit("dashboard_update")
+    req.app.get("io").emit("dashboard_update")
 
     res.json(result.rows[0])
 
@@ -49,17 +70,18 @@ exports.startSession = async (req,res)=>{
     res.status(500).json(err.message)
 
   }
-
 }
 
-
 /* CHECK IN */
-
 exports.checkIn = async (req,res)=>{
 
   try{
 
     const { session_id } = req.body
+
+    if(!session_id){
+      return res.status(400).json({error:"Missing session_id"})
+    }
 
     const result = await db.query(`
       UPDATE sessions
@@ -71,8 +93,7 @@ exports.checkIn = async (req,res)=>{
     `,
     [session_id])
 
-    const io = req.app.get("io")
-    io.emit("dashboard_update")
+    req.app.get("io").emit("dashboard_update")
 
     res.json(result.rows[0])
 
@@ -81,75 +102,35 @@ exports.checkIn = async (req,res)=>{
   }
 
 }
-
-
-/* EXTEND SESSION */
-
-exports.extendSession = async (req,res)=>{
-
-  try{
-
-    const { session_id, extra_hours } = req.body
-
-    const result = await db.query(`
-      UPDATE sessions
-      SET end_time = end_time + ($2 * interval '1 hour')
-      WHERE session_id = $1
-      RETURNING *
-    `,
-    [
-      session_id,
-      extra_hours
-    ])
-
-    const io = req.app.get("io")
-    io.emit("dashboard_update")
-
-    res.json(result.rows[0])
-
-  }catch(err){
-
-    console.log("EXTEND SESSION ERROR:",err)
-    res.status(500).json(err.message)
-
-  }
-
-}
-
 
 /* SESSION SUMMARY */
-
-exports.getSummary = async (req,res)=>{
-
+exports.getSummary = async (req, res) => {
   try{
-
     const { session_id } = req.params
 
     const result = await db.query(`
       SELECT
-      s.session_id,
-      r.room_name,
-      s.actual_start,
-
-      EXTRACT(EPOCH FROM (NOW() - s.actual_start))/3600 AS duration_hours,
-
-      (
-        CASE
-        WHEN s.event_type = 'Movie' THEN r.price_movie
-        WHEN s.event_type = 'Birthday' THEN r.price_birthday
-        WHEN s.play_mode = 'single' THEN r.price_single
-        WHEN s.play_mode = 'multi' THEN r.price_multi
-        ELSE r.price_single
-        END
-      )
-      *
-      EXTRACT(EPOCH FROM (NOW() - s.actual_start))/3600
-      AS suggested_price
-
+        s.session_id,
+        s.customer_name,
+        s.customer_phone,
+        r.room_name,
+        s.actual_start,
+        s.event_type,
+        s.play_mode,
+        EXTRACT(EPOCH FROM (NOW() - COALESCE(s.actual_start, NOW())))/3600 AS duration_hours,
+        (
+          CASE
+            WHEN s.event_type = 'Movie' THEN r.price_movie
+            WHEN s.event_type = 'Birthday' THEN r.price_birthday
+            WHEN s.event_type = 'Tournament' THEN 0
+            WHEN s.play_mode = 'single' THEN r.price_single
+            WHEN s.play_mode = 'multi' THEN r.price_multi
+            ELSE r.price_single
+          END
+        ) * EXTRACT(EPOCH FROM (NOW() - COALESCE(s.actual_start, NOW())))/3600
+        AS suggested_price
       FROM sessions s
-      JOIN rooms r
-      ON r.room_id = s.room_id
-
+      JOIN rooms r ON r.room_id = s.room_id
       WHERE s.session_id = $1
     `,[session_id])
 
@@ -157,108 +138,134 @@ exports.getSummary = async (req,res)=>{
       return res.status(404).json({error:"Session not found"})
     }
 
+    // جيب الـ F&B orders
+    const fbResult = await db.query(`
+      SELECT 
+        cs.sale_id,
+        cs.total_amount AS fb_total,
+        json_agg(json_build_object(
+          'item_name', i.item_name,
+          'quantity', csi.quantity,
+          'subtotal', csi.subtotal
+        )) AS pos_items
+      FROM cafe_sales cs
+      JOIN cafe_sale_items csi ON csi.sale_id = cs.sale_id
+      JOIN inventory i ON i.item_id = csi.item_id
+      WHERE cs.session_id = $1
+      GROUP BY cs.sale_id
+    `,[session_id])
+
+    const fbTotal = fbResult.rows.reduce((sum, s) => sum + Number(s.fb_total), 0)
+    const posItems = fbResult.rows.flatMap(s => s.pos_items)
+
+   const total =
+  Number(result.rows[0].suggested_price) + fbTotal;
+
+res.json({
+  ...result.rows[0],
+  room_total: result.rows[0].suggested_price,
+  pos_total: fbTotal,
+  total,
+  pos_items: posItems
+});
+
+  }catch(err){
+    console.log("SUMMARY ERROR:", err)
+    res.status(500).json(err.message)
+  }
+}
+
+
+/* END SESSION */
+exports.extendSession = async (req,res)=>{
+
+  try{
+
+    const { session_id, extra_hours } = req.body
+
+    if(!session_id || !extra_hours){
+      return res.status(400).json({ error:"Missing data" })
+    }
+
+    // 🔥 هات السيشن الحالي
+    const session = await db.query(`
+      SELECT room_id, end_time
+      FROM sessions
+      WHERE session_id = $1
+    `,[session_id])
+
+    if(session.rows.length === 0){
+      return res.status(404).json({ error:"Session not found" })
+    }
+
+    const currentEnd = session.rows[0].end_time
+    const roomId = session.rows[0].room_id
+
+    const newEnd = new Date(
+      new Date(currentEnd).getTime() + Number(extra_hours) * 3600000
+    )
+
+    // 🔥 check conflict (مهم جدًا)
+    const conflict = await db.query(`
+      SELECT 1 FROM sessions
+      WHERE room_id=$1
+      AND reservation_status IN ('Pending','Checked-In')
+      AND session_id != $4 -- 🔥 استبعد نفسك
+      AND start_time < $3
+      AND end_time > $2
+    `,[roomId, currentEnd, newEnd, session_id])
+
+    if (conflict.rows.length) {
+      return res.status(400).json({ 
+        error: "Cannot extend, room is reserved after this time" 
+      })
+    }
+
+    // ✅ update
+    const result = await db.query(`
+      UPDATE sessions
+      SET end_time = $2
+      WHERE session_id = $1
+      RETURNING *
+    `,[session_id, newEnd])
+
+    req.app.get("io").emit("dashboard_update")
+
     res.json(result.rows[0])
 
   }catch(err){
 
-    console.log("SUMMARY ERROR:",err)
+    console.log("EXTEND ERROR:",err)
     res.status(500).json(err.message)
 
   }
 
 }
 
-
-/* END SESSION */
-
 exports.endSession = async (req,res)=>{
-
   try{
 
     const { session_id } = req.body
 
-    const priceResult = await db.query(`
-      SELECT
-      s.event_type,
-      s.play_mode,
-      s.actual_start,
-
-      r.price_single,
-      r.price_multi,
-      r.price_movie,
-      r.price_birthday
-
-      FROM sessions s
-      JOIN rooms r
-      ON r.room_id = s.room_id
-
-      WHERE s.session_id = $1
-    `,[session_id])
-
-    if(priceResult.rows.length === 0){
-      return res.status(404).json({error:"Session not found"})
+    if(!session_id){
+      return res.status(400).json({error:"Missing session_id"})
     }
-
-    const data = priceResult.rows[0]
-
-    const hours =
-    (Date.now() - new Date(data.actual_start).getTime()) / 3600000
-
-    let price_per_hour = 0
-
-    if(data.event_type === "Movie"){
-      price_per_hour = Number(data.price_movie)
-    }
-    else if(data.event_type === "Birthday"){
-      price_per_hour = Number(data.price_birthday)
-    }
-    else if(data.play_mode === "single"){
-      price_per_hour = Number(data.price_single)
-    }
-    else if(data.play_mode === "multi"){
-      price_per_hour = Number(data.price_multi)
-    }
-    else{
-      price_per_hour = Number(data.price_single)
-    }
-
-    let session_price = price_per_hour * hours
-
-    session_price = Math.ceil(session_price)
 
     const result = await db.query(`
       UPDATE sessions
       SET
-      reservation_status='Completed',
-      actual_end = NOW(),
-      total_price = $2
+        reservation_status='Completed',
+        actual_end = NOW()
       WHERE session_id=$1
       RETURNING *
-    `,
-    [session_id,session_price])
+    `,[session_id])
 
-    await db.query(`
-      UPDATE shifts
-      SET
-      total_revenue = total_revenue + $1,
-      rooms_served = rooms_served + 1
-      WHERE status='Active'
-    `,
-    [session_price])
+    req.app.get("io").emit("dashboard_update")
 
-    const io = req.app.get("io")
-    io.emit("dashboard_update")
-
-    res.json({
-      session: result.rows[0],
-      revenue: session_price
-    })
+    res.json(result.rows[0])
 
   }catch(err){
-
-    console.log("END SESSION ERROR:",err)
+    console.log("END ERROR:",err)
     res.status(500).json(err.message)
-
   }
-
 }

@@ -2,7 +2,7 @@ const express = require("express")
 const cors = require("cors")
 const http = require("http")
 const { Server } = require("socket.io")
-
+const app = express()
 const reservationsRoutes = require("./routes/reservationsRoutes")
 const dashboardRoutes = require("./routes/dashboardRoutes")
 const sessionRoutes = require("./routes/sessionsRoutes")
@@ -15,8 +15,10 @@ const moviesRoutes = require("./routes/moviesRoutes")
 const tournamentsRoutes = require("./routes/tournamentsRoutes")
 const playersRoutes = require("./routes/playersRoutes")
 const authRoutes = require("./routes/authRoutes")
+const matchesRoutes = require("./routes/matchesRoutes")
 
-const app = express()
+
+
 
 /* ================= MIDDLEWARE ================= */
 
@@ -72,7 +74,7 @@ app.use("/api/inventory", inventoryRoutes)
 app.use("/api/movies", moviesRoutes)
 
 app.use("/api/tournaments", tournamentsRoutes)
-
+app.use("/api/matches", matchesRoutes)
 /* ================= STATIC FILES ================= */
 
 app.use("/uploads", express.static("uploads"))

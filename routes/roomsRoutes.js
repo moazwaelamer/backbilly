@@ -3,8 +3,10 @@ const router = express.Router()
 
 const roomsController = require("../controllers/roomsController")
 
-router.get("/", roomsController.getRooms)
-
+// ================= AVAILABLE ROOMS =================
 router.get("/available", roomsController.getAvailableRooms)
 
-module.exports = router
+// ================= ALL ROOMS =================
+router.get("/", roomsController.getRooms)
+
+module.exports = router 
