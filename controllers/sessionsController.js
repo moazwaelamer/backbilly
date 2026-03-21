@@ -4,8 +4,10 @@ import db from "../db/db.js"
 
 export const startSession = async (req, res) => {
   try {
-
-    let { room_id, duration, event_type, play_mode, customer_name, customer_phone } = req.body
+    let { room_id, duration, event_type, play_mode,
+          customer_name, customer_phone,
+          start_time, end_time
+        } = req.body
 
     if (!room_id || !duration) {
       return res.status(400).json({ error: "Missing data" })
@@ -14,13 +16,12 @@ export const startSession = async (req, res) => {
     play_mode = event_type === "Gaming" ? play_mode : null
 
     const hours = Number(duration)
-
     if (isNaN(hours) || hours <= 0) {
       return res.status(400).json({ error: "Invalid duration" })
     }
 
-    const start = new Date()
-    const end   = new Date(start.getTime() + hours * 3600000)
+    const start = start_time ? new Date(start_time) : new Date()
+    const end   = end_time   ? new Date(end_time)   : new Date(start.getTime() + hours * 3600000)
 
     const conflict = await db.query(`
       SELECT 1 FROM sessions
@@ -35,26 +36,12 @@ export const startSession = async (req, res) => {
 
     const result = await db.query(`
       INSERT INTO sessions
-      (
-        room_id, event_type, play_mode,
-        reservation_status,
-        start_time, end_time,
-        actual_start,
-        source,
-        customer_name, customer_phone
-      )
+      (room_id, event_type, play_mode, reservation_status,
+       start_time, end_time, actual_start, source,
+       customer_name, customer_phone)
       VALUES ($1, $2, $3, 'Checked-In', $4, $5, $6, 'Admin', $7, $8)
       RETURNING *
-    `, [
-      room_id,
-      event_type,
-      play_mode,
-      start,
-      end,
-      start,
-      customer_name  || null,
-      customer_phone || null
-    ])
+    `, [room_id, event_type, play_mode, start, end, start, customer_name || null, customer_phone || null])
 
     req.app.get("io").emit("dashboard_update")
     res.json(result.rows[0])
@@ -110,23 +97,27 @@ export const getSummary = async (req, res) => {
         s.play_mode,
         COALESCE(s.actual_start, s.start_time) AS session_start,
 
+        -- ✅ لو في end_time استخدمه، لو لأ احسب من دلوقتي
         EXTRACT(EPOCH FROM (
-          COALESCE(s.end_time, s.actual_start, s.start_time)
+          COALESCE(s.end_time, NOW())
           - COALESCE(s.actual_start, s.start_time)
         )) / 3600 AS duration_hours,
 
+        -- ✅ suggested_price بالـ actual duration
         (
           CASE
             WHEN s.event_type = 'Movie'      THEN r.price_movie
             WHEN s.event_type = 'Birthday'   THEN r.price_birthday
             WHEN s.event_type = 'Tournament' THEN 0
-            WHEN s.play_mode = 'Multi'       THEN r.price_multi
+            WHEN s.play_mode  = 'Multi'      THEN r.price_multi
             ELSE r.price_single
           END
-        ) * ABS(EXTRACT(EPOCH FROM (
-          COALESCE(s.end_time, s.actual_start, s.start_time)
-          - COALESCE(s.actual_start, s.start_time)
-        )) / 3600) AS suggested_price
+        ) * GREATEST(
+          EXTRACT(EPOCH FROM (
+            COALESCE(s.end_time, NOW())
+            - COALESCE(s.actual_start, s.start_time)
+          )) / 3600
+        , 0) AS suggested_price
 
       FROM sessions s
       JOIN rooms r ON r.room_id = s.room_id
@@ -161,7 +152,7 @@ export const getSummary = async (req, res) => {
     res.json({
       ...row,
       full_name:  row.customer_name || null,
-      deposit:    Number(row.deposit || 0),   // ✅ بيرجع الـ deposit للـ frontend
+      deposit:    Number(row.deposit || 0),
       room_total: row.suggested_price,
       pos_total:  fbTotal,
       total,
@@ -193,7 +184,7 @@ export const extendSession = async (req, res) => {
       return res.status(404).json({ error: "Session not found" })
     }
 
-    const s = session.rows[0]
+    const s          = session.rows[0]
     const currentEnd = s.end_time ? new Date(s.end_time) : new Date()
     const roomId     = s.room_id
     const newEnd     = new Date(currentEnd.getTime() + Number(extra_hours) * 3600000)
@@ -232,7 +223,7 @@ export const extendSession = async (req, res) => {
     const result = await db.query(`
       UPDATE sessions
       SET
-        end_time = $2,
+        end_time    = $2,
         total_price = COALESCE(total_price, 0) + $3
       WHERE session_id = $1
       RETURNING *
@@ -269,9 +260,9 @@ export const endSession = async (req, res) => {
     const updated = await db.query(`
       UPDATE sessions
       SET
-        actual_end = $1,
+        actual_end         = $1,
         reservation_status = 'Completed',
-        total_price = $2
+        total_price        = $2
       WHERE session_id = $3
       RETURNING *
     `, [endTime, total, session_id])
@@ -284,7 +275,7 @@ export const endSession = async (req, res) => {
       WHERE status = 'Active'
     `, [total])
 
-    io.emit("sessionEnded", { session_id, total })
+    io.emit("sessionEnded",    { session_id, total })
     io.emit("dashboard_update")
 
     res.json(updated.rows[0])

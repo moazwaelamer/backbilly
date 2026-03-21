@@ -31,9 +31,11 @@ export const getDashboardStats = async (req, res) => {
     `)
 
     const activeRooms = await pool.query(`
-      SELECT COUNT(*) AS active_rooms FROM sessions
-      WHERE reservation_status = 'Checked-In'
-    `)
+  SELECT COUNT(*) AS active_rooms FROM sessions
+  WHERE reservation_status = 'Checked-In'
+  AND actual_start IS NOT NULL
+  AND (end_time IS NULL OR end_time > NOW())
+`)
 
     const totalRooms = await pool.query(`
       SELECT COUNT(*) AS total_rooms FROM rooms WHERE is_active = true

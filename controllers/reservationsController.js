@@ -10,7 +10,8 @@ export const createReservation = async (req, res) => {
       start_time, end_time,
       event_type, play_mode,
       seats, player_id,
-      deposit = 0
+      deposit = 0,
+      instapay_ref
     } = req.body
 
     if(!name || !phone) {
@@ -66,12 +67,12 @@ export const createReservation = async (req, res) => {
     }
 
     const result = await db.query(`
-      INSERT INTO sessions
-      (customer_name, customer_phone, room_id, event_type, play_mode,
-       start_time, end_time, reservation_status, player_id, deposit)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,'Pending',$8,$9)
+     INSERT INTO sessions
+(customer_name, customer_phone, room_id, event_type, play_mode,
+ start_time, end_time, reservation_status, player_id, deposit, instapay_ref)
+VALUES ($1,$2,$3,$4,$5,$6,$7,'Pending',$8,$9,$10)
       RETURNING *
-    `, [name, phone, room_id, event_type, play_mode, start, end, player_id || null, deposit])
+    `, [name, phone, room_id, event_type, play_mode, start, end, player_id || null, deposit,instapay_ref || null])
 
     io.emit("reservationCreated")
     io.emit("dashboard_update")
@@ -98,28 +99,30 @@ export const getReservations = async (req, res) => {
         s.end_time,
         s.reservation_status,
         s.source,
-        s.deposit
+        s.deposit,
+        s.instapay_ref 
       FROM sessions s
       JOIN rooms r ON s.room_id = r.room_id
       WHERE
         s.reservation_status = 'Checked-In'
         OR (s.reservation_status = 'Pending' AND s.start_time > NOW())
 
-      UNION ALL
+UNION ALL
 
-      SELECT
-        m.booking_id AS session_id,
-        m.booking_id AS id,
-        m.customer_name,
-        m.phone AS customer_phone,
-        'Movie Event' AS room_name,
-        'Movie' AS event_type,
-        m.booking_time AS start_time,
-        m.booking_time AS end_time,
-        'Booked' AS reservation_status,
-        'Website' AS source,
-        0 AS deposit
-      FROM movie_night_bookings m
+SELECT
+  m.booking_id AS session_id,
+  m.booking_id AS id,
+  m.customer_name,
+  m.phone AS customer_phone,
+  'Movie Event' AS room_name,
+  'Movie' AS event_type,
+  m.booking_time AS start_time,
+  m.booking_time AS end_time,
+  'Booked' AS reservation_status,
+  'Website' AS source,
+  0 AS deposit,
+  NULL AS instapay_ref    -- ← ضيف السطر ده
+FROM movie_night_bookings m
 
       ORDER BY start_time ASC
     `)
@@ -136,26 +139,34 @@ export const checkInReservation = async (req, res) => {
     const io = req.app.get("io")
     const { session_id } = req.body
 
+    // ✅ جيب الـ start_time الأصلي
     const session = await db.query(`
-      UPDATE sessions
-      SET reservation_status='Checked-In', actual_start = NOW()
-      WHERE session_id=$1
-      RETURNING *
+      SELECT start_time FROM sessions WHERE session_id = $1
     `, [session_id])
 
-    if(session.rows.length === 0) {
+    if (session.rows.length === 0) {
       return res.status(404).json({ error: "Session not found" })
     }
 
+    const originalStart = session.rows[0].start_time
+
+    const result = await db.query(`
+      UPDATE sessions
+      SET 
+        reservation_status = 'Checked-In',
+        actual_start = $2        -- ← وقت الحجز الأصلي مش NOW()
+      WHERE session_id = $1
+      RETURNING *
+    `, [session_id, originalStart])
+
     io.emit("sessionStarted")
     io.emit("dashboard_update")
-    res.json(session.rows[0])
+    res.json(result.rows[0])
 
   } catch(err) {
     res.status(500).json({ error: err.message })
   }
 }
-
 /* ================= GET AVAILABILITY ================= */
 export const getAvailability = async (req, res) => {
   try {
@@ -285,6 +296,57 @@ export const addDeposit = async (req, res) => {
       session_id: result.rows[0].session_id,
       deposit: result.rows[0].deposit
     })
+
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+export const updateReservationTime = async (req, res) => {
+  try {
+    const io = req.app.get("io")
+    const { id } = req.params
+    const { start_time, end_time } = req.body
+
+    if (!start_time || !end_time) {
+      return res.status(400).json({ error: "start_time and end_time required" })
+    }
+
+    const start = new Date(start_time)
+    const end   = new Date(end_time)
+
+    if (start >= end) {
+      return res.status(400).json({ error: "Invalid time range" })
+    }
+
+    // تحقق من conflict مع حجوزات تانية
+    const conflict = await db.query(`
+      SELECT 1 FROM sessions
+      WHERE room_id = (SELECT room_id FROM sessions WHERE session_id = $1)
+      AND session_id != $1
+      AND reservation_status IN ('Pending', 'Checked-In')
+      AND start_time < $3
+      AND end_time > $2
+    `, [id, start, end])
+
+    if (conflict.rows.length > 0) {
+      return res.status(400).json({ error: "Time conflicts with another booking" })
+    }
+
+    const result = await db.query(`
+      UPDATE sessions
+      SET start_time = $2, end_time = $3
+      WHERE session_id = $1
+      AND reservation_status = 'Pending'
+      RETURNING *
+    `, [id, start, end])
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Booking not found or already checked in" })
+    }
+
+    io.emit("dashboard_update")
+    res.json(result.rows[0])
 
   } catch (err) {
     res.status(500).json({ error: err.message })
